@@ -1,11 +1,11 @@
-app = "my-garden"
+app = "zephyrae-garden"
 primary_region = "ams"
 
 [build]
 
 [env]
   PORT = "3000"
-  REPO_SOURCE = "https://github.com/your-user/your-garden/blob/main"
+  REPO_SOURCE = "https://github.com/zephyraeee/zephyrae-garden/blob/main"
 
 [http_service]
   internal_port = 3000
