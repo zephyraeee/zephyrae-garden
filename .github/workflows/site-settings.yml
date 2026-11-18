@@ -1,0 +1,84 @@
+name: Site settings
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+concurrency:
+  group: site-settings-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  open-pull-request:
+    if: >-
+      github.event.issue.author_association == 'OWNER' &&
+      (contains(github.event.issue.labels.*.name, 'site-settings') ||
+       github.event.issue.title == 'Site settings update')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      ISSUE_BODY: ${{ github.event.issue.body }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      BRANCH: site-settings/issue-${{ github.event.issue.number }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Apply the requested settings
+        run: |
+          printf '%s\n' "$ISSUE_BODY" > "$RUNNER_TEMP/request.md"
+          engine=$(sed -n 's/^FROM //p' Dockerfile | head -n 1)
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$PWD:/work" \
+            -v "$RUNNER_TEMP:/run-files" \
+            -w /work \
+            "$engine" /app/site-settings \
+            --request /run-files/request.md \
+            --summary /run-files/summary.md \
+            --issue "$ISSUE_NUMBER" \
+            --config site.toml \
+            --static-dir assets \
+            2> "$RUNNER_TEMP/errors.txt"
+
+      - name: Open the pull request
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$BRANCH"
+          git add -A site.toml assets/fonts
+          git commit -m "chore: apply site settings from #$ISSUE_NUMBER"
+          git push --force origin "$BRANCH"
+          url=$(gh pr create \
+            --base "$DEFAULT_BRANCH" \
+            --head "$BRANCH" \
+            --title "Site settings from #$ISSUE_NUMBER" \
+            --body-file "$RUNNER_TEMP/summary.md")
+          gh workflow run check.yml --ref "$BRANCH"
+          gh issue comment "$ISSUE_NUMBER" --body "Opened $url. The tests are running on it; merge it to deploy the new settings."
+
+      - name: Report problems
+        if: failure()
+        run: |
+          {
+            echo "The settings could not be applied."
+            echo
+            if [ -s "$RUNNER_TEMP/errors.txt" ]; then
+              echo '```'
+              cat "$RUNNER_TEMP/errors.txt"
+              echo '```'
+              echo
+            fi
+            echo "Details: $RUN_URL"
+          } > "$RUNNER_TEMP/failure.md"
+          gh issue comment "$ISSUE_NUMBER" --body-file "$RUNNER_TEMP/failure.md"

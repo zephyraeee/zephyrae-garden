@@ -1,0 +1,41 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Record when each post changed
+        run: (cd garden && git log --format=%x00%cs --name-only --relative -- .) > garden-dates.txt
+
+      - name: Build the site
+        run: docker build -t site .
+
+      - name: Check the content
+        run: docker run --rm site ./garden-engine check
+
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@1.5
+
+      - name: Deploy to Fly.io
+        run: flyctl deploy --local-only ${FLY_APP_NAME:+--app "$FLY_APP_NAME"}
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          FLY_APP_NAME: ${{ vars.FLY_APP_NAME }}

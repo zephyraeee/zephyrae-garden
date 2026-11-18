@@ -1,0 +1,27 @@
+name: Check
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Record when each post changed
+        run: (cd garden && git log --format=%x00%cs --name-only --relative -- .) > garden-dates.txt
+
+      - name: Build the site
+        run: docker build -t site .
+
+      - name: Check the content
+        run: docker run --rm site ./garden-engine check
